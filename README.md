@@ -1,1 +1,3 @@
 # esp8266_usb_soft_host
+
+Test for esp8266 usb host . Working, but no stable...
