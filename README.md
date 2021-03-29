@@ -1,6 +1,6 @@
 # esp8266_usb_soft_host
 
-Test for esp8266 usb host . Working, but only 160MHz with   ESP-IDF v3.4 
+Test for esp8266 usb host . Working, but only 160MHz with   ESP-IDF v3.4  WorkInProgress
 
 ![image1](https://github.com/sdima1357/esp8266_usb_soft_host/blob/main/images/IMG_20210329_161906_1.jpg?raw=true)
 
