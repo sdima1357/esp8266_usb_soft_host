@@ -14,7 +14,7 @@
 #include "esp8266/gpio_struct.h"
 #include "esp_clk.h"
 #include "driver/gpio.h"
-
+#include "esp_heap_caps.h"
 #include <sys/time.h>
 int lt;
 //~ #include "driver/gpio.h"
@@ -66,10 +66,10 @@ int lt;
 
 ///cpufreq (must be 240) /8 count = 30MHz  convinient number for measure 1.5MHz  of  low speed USB
 //#pragma GCC optimize ("-O2")
-inline uint8_t _getCycleCount8d8(void) {
+inline uint8_t _getCycleCount8d4(void) {
   uint32_t ccount;
   __asm__ __volatile__("rsr %0,ccount":"=a" (ccount));
-  return ccount>>3;
+  return ccount>>2;
 }
 //#pragma GCC optimize ("-O2")
 inline uint32_t _getCycleCount32(void) {
@@ -139,18 +139,59 @@ uint8_t decoded_receive_buffer_tail;
 uint8_t decoded_receive_buffer[DEF_BUFF_SIZE];
 // end temporary used insize lowlevel
 
-
-
-
 #if 0
+#define TNOP1  { __asm__ __volatile__("   nop"); }
+#define TNOP2  {TNOP1 TNOP1}
+#define TNOP4  {TNOP2 TNOP2}
+#define TNOP8  {TNOP4 TNOP4}
+#define TNOP16  {TNOP8 TNOP8}
+#define TNOP32  {TNOP16 TNOP16}
+#define TNOP64  {TNOP32 TNOP32}
+
+
+//__volatile__ void dummy0(){printf("dummy0");}
+__volatile__ void cpuDelayB()
+{
+	TNOP64;
+	TNOP64;
+	TNOP64;
+	TNOP64;
+//	__asm__ __volatile__("   nop");
+
+//	tick = DWT->CYCCNT + tick;
+//	while((DWT->CYCCNT - tick)&0x80000000u);
+}
+//__volatile__ void dummy1(){printf("dummy1");}
+
+//typedef void *pfnc(uint32_t);
+
+
+volatile void (*delay_pntA)() = &cpuDelayB;
+
+#define cpuDelay(x) {(*delay_pntA)();}
+#if 0
+void cpuDelay(uint32_t tick)
+{
+	//uint8_t* pnt = (uint8_t*)&cpuDelay;
+	//void (*delay_pnt)() = (&cpuDelayB)+((256-tick)*2);
+	(*delay_pntA)();
+}
+#endif
+void setDelay(uint32_t tick)
+{
+	delay_pntA = (&cpuDelayB)+((256-tick)*2);
+}
+#endif
+#if  1
+#if 1
+//#define MALLOC_CAP_EXEC         (1 << 0) 
 void (*delay_pntA)() =NULL;
 #define cpuDelay(x) {(*delay_pntA)();}
 void setDelay(uint8_t ticks)
 {
 // opcodes of void test_delay() {__asm__ (" nop"); __asm__ (" nop"); __asm__ (" nop"); ...}
-//36 41 00 3d f0 1d f0 00 // one  nop
-//36 41 00 3d f0 3d f0 3d f0 3d f0 3d f0 1d f0 00  // five  nops
-//36 41 00 3d f0 3d f0 3d f0 3d f0 3d f0 3d f0 1d  f0 00 00 00 //
+//3d f0 0d f0 00 // one  nop
+//3d f0 3d f0 0d f0 00 // one  nop
 int    MAX_DELAY_CODE_SIZE = 0x280;
 uint8_t*     pntS;
 	// it can't execute but can read & write
@@ -164,9 +205,9 @@ uint8_t*     pntS;
 	}
 	uint8_t* pnt = (uint8_t*)pntS;
 	//put head of delay procedure
-	*pnt++ = 0x36;
-	*pnt++ = 0x41;
-	*pnt++ = 0; 
+	//~ *pnt++ = 0x36;
+	//~ *pnt++ = 0x41;
+	//~ *pnt++ = 0; 
 	for(int k=0;k<ticks;k++)
 	{
 		//put NOPs
@@ -174,13 +215,14 @@ uint8_t*     pntS;
 		*pnt++ = 0xf0;
 	}
 	//put tail of delay procedure
-	*pnt++ = 0x1d;
+	*pnt++ = 0x0d;
 	*pnt++ = 0xf0;
 	*pnt++ = 0x00;
 	*pnt++ = 0x00;
 	// move it to executable memory segment
 	// it can't  write  but can read & execute
 	delay_pntA = heap_caps_realloc(pntS,MAX_DELAY_CODE_SIZE,MALLOC_CAP_EXEC);
+	//delay_pntA = heap_caps_realloc(pntS,MAX_DELAY_CODE_SIZE,MALLOC_CAP_32BIT);
 }
 #else
 void setDelay(uint32_t tick)
@@ -199,9 +241,26 @@ void cpuDelayS(uint32_t ticks)
 void cpuDelay(uint32_t tick)
 {
 	uint32_t stop =_getCycleCount32() + tick;
-	while((_getCycleCount32() - stop)&0x80000000u);
+	//while(_getCycleCount32()<stop);
+	while((_getCycleCount32() - stop)>0x8000000u);
 }
 #endif
+#endif
+void del1()
+{
+	__asm__ __volatile__("   nop"); 
+}
+void del2()
+{
+	__asm__ __volatile__("   nop"); 
+	__asm__ __volatile__("   nop"); 
+}
+void del3()
+{
+	__asm__ __volatile__("   nop"); 
+	__asm__ __volatile__("   nop"); 
+	__asm__ __volatile__("   nop"); 
+}
 
 
 typedef __packed struct
@@ -263,6 +322,8 @@ uint8_t   R0Bytes;
 uint8_t   Resp1[DEF_BUFF_SIZE];
 uint8_t   R1Bytes;
 
+int     bAcked;	
+
 } sUsbContStruct;
 
 sUsbContStruct * current;
@@ -305,7 +366,7 @@ void decoded_receive_buffer_clear()
 	decoded_receive_buffer_tail = decoded_receive_buffer_head;
 }
 
-inline void decoded_receive_buffer_put(uint8_t val)
+void decoded_receive_buffer_put(uint8_t val)
 {
 	decoded_receive_buffer[decoded_receive_buffer_head] = val;
 	decoded_receive_buffer_head++;
@@ -361,19 +422,19 @@ uint32_t cal16()
 	}
 	return (~rem)&0b1111111111111111;
 }
-inline void seB(int bit)
+ void seB(int bit)
 {
 	transmit_bits_buffer_store[transmit_bits_buffer_store_cnt++] = bit;
 }
 
-inline void pu_MSB(uint16_t msg,int N)
+ void pu_MSB(uint16_t msg,int N)
 {
 	for(int k=0;k<N;k++)
 	{
 		seB(msg&(1<<(N-1-k))?1:0);
 	}
 }
-inline void pu_LSB(uint16_t msg,int N)
+ void pu_LSB(uint16_t msg,int N)
 {
 	for(int k=0;k<N;k++)
 	{
@@ -660,6 +721,9 @@ void sendRecieveNParse()
 	register uint32_t R4;// = READ_BOTH_PINS;
 	register uint16_t *STORE = received_NRZI_buffer;
 	//portENTER_CRITICAL();		
+#if 1			
+	sendOnly();
+#else			
 	uint8_t k;
 	SET_O;
 #ifdef WR_SIMULTA	
@@ -685,11 +749,12 @@ void sendRecieveNParse()
 	}
 	SET_I;
 	transmit_NRZI_buffer_cnt = 0;
+#endif	
 //
 //			sendOnly();
 START:
 	R4 = READ_BOTH_PINS;
-	*STORE = R4 | _getCycleCount8d8();
+	*STORE = R4 | _getCycleCount8d4();
 	STORE++;
 	R3 = R4;
 	//R4 = READ_BOTH_PINS;
@@ -844,6 +909,15 @@ void timerCallBack()
 		SET_I;
 		SE_J;
 		cpuDelay(TRANSMIT_TIME_DELAY);
+		cpuDelay(TRANSMIT_TIME_DELAY);
+		cpuDelay(TRANSMIT_TIME_DELAY);
+		cpuDelay(TRANSMIT_TIME_DELAY);
+		cpuDelay(TRANSMIT_TIME_DELAY);
+		cpuDelay(TRANSMIT_TIME_DELAY);
+		cpuDelay(TRANSMIT_TIME_DELAY);
+		cpuDelay(TRANSMIT_TIME_DELAY);
+		cpuDelay(TRANSMIT_TIME_DELAY);
+		cpuDelay(TRANSMIT_TIME_DELAY);
 		current->wires_last_state = READ_BOTH_PINS>>8;
 		if(current->wires_last_state==M_ONE)
 		{
@@ -895,14 +969,21 @@ void timerCallBack()
 		}
 		else
 		{
-			//sendRecieveNParse();
-			cpuDelay(TRANSMIT_TIME_DELAY);
 			SET_O;
 			SE_0;
 			SET_I;
 			SE_J;
+			SET_I;
 			cpuDelay(TRANSMIT_TIME_DELAY);
-			
+			cpuDelay(TRANSMIT_TIME_DELAY);
+			cpuDelay(TRANSMIT_TIME_DELAY);
+			cpuDelay(TRANSMIT_TIME_DELAY);
+			cpuDelay(TRANSMIT_TIME_DELAY);
+			cpuDelay(TRANSMIT_TIME_DELAY);
+			cpuDelay(TRANSMIT_TIME_DELAY);
+			cpuDelay(TRANSMIT_TIME_DELAY);
+			cpuDelay(TRANSMIT_TIME_DELAY);
+			cpuDelay(TRANSMIT_TIME_DELAY);
 			current->wires_last_state = READ_BOTH_PINS>>8;
 			current->bComplete     = 1;
 		}
@@ -1022,6 +1103,7 @@ void timerCallBack()
 	        		ACK();
 	        		//printf("received_NRZI_buffer_bytesCnt=%d!!!\n",received_NRZI_buffer_bytesCnt);
 				current->cb_Cmd = CB_TICK;
+				current->bAcked = 1;
 				current->bComplete       =  1;
 	        		return ;
 	        }
@@ -1220,6 +1302,7 @@ void Request(uint8_t cmd,	 uint8_t addr,uint8_t eop,
 	 current->numb_reps_errors_allowed = 4;
 	 current->asckedReceiveBytes = waitForBytes;
 	 current->acc_decoded_resp_counter    = 0;
+	current->bAcked = 0;
 //	 if(cmd==T_SETUP)
 //	 {
 		 current->cb_Cmd = CB_5;
@@ -1372,7 +1455,7 @@ void fsm_Mashine()
 			memcpy(current->descrBuffer,current->acc_decoded_resp,current->descrBufferLen);
 			current->cmdTimeOut = 25;
 			current->cb_Cmd       = CB_WAIT1;
-			current->fsm_state    = 97; 
+			current->fsm_state    = 94; 
 		}
 		else
 		{
@@ -1381,18 +1464,25 @@ void fsm_Mashine()
 			current->fsm_state    = 7;
 		}
 	 } 
-	 else if(current->fsm_state==97)
+	 else if(current->fsm_state==94)
 	 {
 		// config interfaces??
 		//printf("set configuration 1\n");
 		Request(T_SETUP,ASSIGNED_USB_ADDRESS,0b0000,T_DATA0,0x00,0x9,0x0001,0x0000,0x0000,0x0000);
-		 current->fsm_state    = 98; 
+		current->fsm_state    = 96; 
 	 }
-	 else if(current->fsm_state==98)
+	 else if(current->fsm_state==96)
 	 {
 		// config interfaces??
-		Request(T_SETUP,ASSIGNED_USB_ADDRESS,0b0000,T_DATA0,0x21,0xa,0x0000,0x0000,0x0000,0x0000);
-		current->fsm_state    = 99; 
+		 if(current->bAcked)
+		 {
+			Request(T_SETUP,ASSIGNED_USB_ADDRESS,0b0000,T_DATA0,0x21,0xa,0x0000,0x0000,0x0000,0x0000);
+			 current->fsm_state    = 99; 
+		 }
+		 else
+		 {
+			current->fsm_state    = 94; 
+		 }
 	 }
 	 else if(current->fsm_state==99)
 	 {
@@ -1400,17 +1490,16 @@ void fsm_Mashine()
 		//current->cnt++;
 		//uint8_t cmd1 = current->cnt&0x20?0x7:0x0;
 		 //printf(" 3 LEDs enable/disable on keyboard \n");
-		uint8_t cmd1 = 0;
-		//if(cmd0!=cmd1)
-		//{
+		 if(current->bAcked)
+		 {
+			uint8_t cmd1 = 0;
 			RequestSend(T_SETUP,ASSIGNED_USB_ADDRESS,0b0000,T_DATA0,0x21,0x9,0x0200,0x0000,0x0001,0x0001,&cmd1);
-		//}
-		//else
-		//{
-		//	current->cmdTimeOut = 1; 
-		//	current->cb_Cmd        = CB_WAIT1;
-		//}
-		current->fsm_state    = 100; 
+			current->fsm_state    = 100; 
+		 }
+		 else
+		 {
+			 current->fsm_state    = 96; 
+		 }
 	 }
 	 else if(current->fsm_state==100)
 	 {
@@ -1529,7 +1618,7 @@ int checkPins(int dp,int dm)
 float testDelay6(float freq_MHz)
 {
 	// 6 bits must take 4.0 uSec
-#define SEND_BITS  120
+#define SEND_BITS  126
 	float res = 1;
 	transmit_NRZI_buffer_cnt = 0;
 	{
@@ -1538,11 +1627,13 @@ float testDelay6(float freq_MHz)
 			transmit_NRZI_buffer[transmit_NRZI_buffer_cnt++] = USB_LS_K;
 			transmit_NRZI_buffer[transmit_NRZI_buffer_cnt++] = USB_LS_J;
 		}
+	portENTER_CRITICAL();			
 		uint32_t stim = _getCycleCount32();
 		sendOnly();
 		stim =  _getCycleCount32()- stim;
+	portEXIT_CRITICAL	();
 		res = stim*6.0/freq_MHz/SEND_BITS;
-		printf("%d bits in %f uSec %f MHz  6 ticks in %f uS\n",SEND_BITS,stim/(float)freq_MHz,SEND_BITS*freq_MHz/stim,stim*6.0/freq_MHz/SEND_BITS);
+		printf("%d bits in %d nSec %d KHz  6 ticks in %d nS\n",SEND_BITS,(int)(1000*stim/(float)freq_MHz),(int)(1000*SEND_BITS*freq_MHz/stim),(int)(1000*stim*6.0/freq_MHz/SEND_BITS));
 	}
 	return res; 
 }
@@ -1556,14 +1647,14 @@ void initStates(int DP0,int DM0,int DP1,int DM1,int DP2,int DM2,int DP3,int DM3)
 	transmit_bits_buffer_store_cnt = 0;
 	//printf("delayProc =%p\n",delayProc);
 	printf("setDelay =%p\n",&setDelay);
-#if 0
-	printf("p0 = %p \n",&p0);
-	printf("de = %p \n",&cpuDelayC);
-	printf("p1 = %p \n",&p1);
-	int len = ((uint32_t)&p1) - ((uint32_t)&cpuDelayC);
+#if 1
+	printf("p0 = %p \n",&del1);
+	printf("de = %p \n",&del2);
+	printf("p1 = %p \n",&del3);
+	int  len = (((uint32_t)&del3) - ((uint32_t)&del1))*2;
 	for(int k=0;k<len;k++)
 	{
-		memcpy(arr,&cpuDelayC,0x200);
+		memcpy(arr,&del1,0x200);
 	}
 	printf("\n");
 	for(int k=0;k<len;k++)
@@ -1650,18 +1741,21 @@ void initStates(int DP0,int DM0,int DP1,int DM1,int DP2,int DM2,int DP3,int DM3)
 				TM_OUT = freq_mhz/2;
 				
 				// 8  - func divided clock to 8, 1.5 - MHz USB LS
-				TIME_MULT = (int)(TIME_SCALE/(freq_mhz/8/1.5)+0.5);
+				TIME_MULT = (int)(TIME_SCALE/(freq_mhz/4/1.5)+0.5);
 				printf("TIME_MULT = %d \n",TIME_MULT);
 				
 				int     TRANSMIT_TIME_DELAY_OPT = 0;
 				TRANSMIT_TIME_DELAY = TRANSMIT_TIME_DELAY_OPT;
 				setDelay(TRANSMIT_TIME_DELAY);
+				printf("TT=%d ",TRANSMIT_TIME_DELAY);
 				float  cS_opt = testDelay6(freq_mhz);
-#define OPT_TIME (4.00f)
+//#define OPT_TIME (4.50f)
+#define OPT_TIME (4.0f)
 				for(int p=0;p<9;p++)
 				{
 					TRANSMIT_TIME_DELAY = (uTime+dTime)/2;
 					setDelay(TRANSMIT_TIME_DELAY);
+					printf("TT=%d ",TRANSMIT_TIME_DELAY);
 					float cS = testDelay6(freq_mhz);
 					if(fabsf(OPT_TIME-cS)<fabsf(OPT_TIME-cS_opt))
 					{
@@ -1679,7 +1773,9 @@ void initStates(int DP0,int DM0,int DP1,int DM1,int DP2,int DM2,int DP3,int DM3)
 				}
 				TRANSMIT_TIME_DELAY = TRANSMIT_TIME_DELAY_OPT;
 				setDelay(TRANSMIT_TIME_DELAY);
-				printf("TRANSMIT_TIME_DELAY = %d time = %f error = %f%% \n",TRANSMIT_TIME_DELAY,cS_opt,(cS_opt-OPT_TIME)/OPT_TIME*100);
+				printf("TT=%d ",TRANSMIT_TIME_DELAY);
+				cS_opt = testDelay6(freq_mhz);
+				printf("TRANSMIT_TIME_DELAY = %d time = %d error = %d%% \n",TRANSMIT_TIME_DELAY,(int)(1000*cS_opt),(int)((cS_opt-OPT_TIME)/OPT_TIME*100));
 				//calibrated = 1;
 			}
 		}

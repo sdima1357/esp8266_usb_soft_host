@@ -42,7 +42,9 @@ void led(int on_fff)
 
 void hw_timer_callback1ms()
 {
+	portENTER_CRITICAL();		
 	usb_process();
+	portEXIT_CRITICAL();
 }
 void app_main()
 {
