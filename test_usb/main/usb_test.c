@@ -20,8 +20,8 @@
 
 #define DP_P  12
 #define DM_P  14
-#define DP_P1  13
-#define DM_P1  15
+#define DP_P1  15
+#define DM_P1  13
 #define DP_P2  -1
 #define DM_P2  -1
 #define DP_P3  -1
