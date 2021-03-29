@@ -649,7 +649,7 @@ int parse_received_NRZI_buffer()
 
 //#define WR_SIMULTA 
 //#pragma GCC optimize ("-O2")
-//#pragma GCC optimize ("-O2")
+#pragma GCC optimize ("-O2")
 void sendOnly()
 {
 	uint8_t k;
@@ -678,6 +678,7 @@ void sendOnly()
 	transmit_NRZI_buffer_cnt = 0;
 	SET_I;
 }
+#pragma GCC optimize ("-Os")
 #if 0
 #pragma GCC optimize ("-O2")
 // safety  option, but slower and works with high cpu freq >=160MHz .
@@ -714,7 +715,7 @@ void sendRecieveNParse()
 int flagR3 = 1;
 //#pragma GCC optimize ("-O2")
 //#define WR_SIMULTAA 1
-
+#pragma GCC optimize ("-O2")
 void sendRecieveNParse()
 		{
 	register uint32_t R3;
@@ -775,6 +776,7 @@ START:
 }
 #endif
 
+#pragma GCC optimize ("-Os")
 
 int sendRecieve()
 {
@@ -896,7 +898,7 @@ void ACK()
 //enum  CallbackCmd {CB_CHECK,CB_RESET,CB_WAIT0,CB_POWER,CB_TICK,CB_2,CB_3,CB_4,CB_5,CB_6,CB_7,CB_8,CB_9,CB_WAIT1} ;
 //char*  CallbackCmdCtr[] = {"CB_CHECK","CB_RESET","CB_WAIT0","CB_POWER","CB_TICK","CB_2","CB_3","CB_4","CB_5","CB_6","CB_7","CB_8","CB_9","CB_WAIT1"} ;
 //#pragma GCC optimize ("-O2")
-//#pragma GCC optimize ("-O2")
+#pragma GCC optimize ("-Os")
 void timerCallBack()
 {
 	lt = _getCycleCount32();
