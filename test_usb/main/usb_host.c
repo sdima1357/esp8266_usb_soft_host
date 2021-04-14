@@ -328,6 +328,58 @@ int     bAcked;
 
 sUsbContStruct * current;
 
+void parseImmed(sUsbContStruct * pcurrent)
+{
+static sCfgDesc  	cfg;
+static sIntfDesc 		sIntf;
+static HIDDescriptor 	hid[4];
+static sEPDesc 		epd;
+static int 			cfgCount   = 0;
+static int 			sIntfCount   = 0;
+static int 			hidCount   = 0;
+
+int 			pos = 0;
+#define STDCLASS        0x00
+#define HIDCLASS        0x03
+#define HUBCLASS	 	0x09      /* bDeviceClass, bInterfaceClass */
+pcurrent->epCount     = 0;
+while(pos<pcurrent->descrBufferLen-2)
+	
+	{
+		uint8_t len  =  pcurrent->descrBuffer[pos];
+		uint8_t type =  pcurrent->descrBuffer[pos+1];
+		if(len==0)
+		{
+			//printf("pos = %02x type = %02x cfg.wLength = %02x pcurrent->acc_decoded_resp_counter = %02x\n ",pos,type,cfg.wLength,pcurrent->acc_decoded_resp_counter);
+			pos = pcurrent->descrBufferLen;
+		}
+		if(pos+len<=pcurrent->descrBufferLen)
+		{
+				if(type == 0x2)
+				{
+					memcpy(&cfg,&pcurrent->descrBuffer[pos],len);
+					
+				}
+				else if (type == 0x4)
+				{
+					memcpy(&sIntf,&pcurrent->descrBuffer[pos],len);
+				}
+				else if (type == 0x21)
+				{
+
+					hidCount++;
+					int i = hidCount-1;
+					memcpy(&hid[i],&pcurrent->descrBuffer[pos],len);
+				}
+				else if (type == 0x5)
+				{
+					pcurrent->epCount++;
+					memcpy(&epd,&pcurrent->descrBuffer[pos],len);
+				}
+		}
+		pos+=len;
+	}
+}
 
 
 
@@ -1055,7 +1107,23 @@ void timerCallBack()
 		 pu_Addr(T_IN,current->rq.addr,current->rq.eop);
 				//setup
 		 sendRecieveNParse();
+		 if(received_NRZI_buffer_bytesCnt<SMALL_NO_DATA &&  received_NRZI_buffer_bytesCnt >SMALL_NO_DATA/4)
+		 {	 
 		 ACK();
+		 }
+		 else
+		 {
+			current->numb_reps_errors_allowed--;
+			if(current->numb_reps_errors_allowed>0)
+			 {
+					 return ;
+			 }
+			 else
+			 {
+				 
+			 }
+			 
+		 }
 		current->cb_Cmd=CB_TICK;
 		 current->bComplete = 1;
 	}
@@ -1455,6 +1523,7 @@ void fsm_Mashine()
 			current->ufPrintDesc |= 4;
 			current->descrBufferLen = current->acc_decoded_resp_counter;
 			memcpy(current->descrBuffer,current->acc_decoded_resp,current->descrBufferLen);
+			parseImmed(current);
 			current->cmdTimeOut = 25;
 			current->cb_Cmd       = CB_WAIT1;
 			current->fsm_state    = 94; 
@@ -1483,7 +1552,9 @@ void fsm_Mashine()
 		 }
 		 else
 		 {
-			current->fsm_state    = 94; 
+			current->cmdTimeOut = 3; 
+			current->cb_Cmd        = CB_WAIT1;
+			current->fsm_state    = 0; 
 		 }
 	 }
 	 else if(current->fsm_state==99)
@@ -1500,7 +1571,9 @@ void fsm_Mashine()
 		 }
 		 else
 		 {
-			 current->fsm_state    = 96; 
+			current->cmdTimeOut = 3; 
+			current->cb_Cmd        = CB_WAIT1;
+			current->fsm_state    = 0; 
 		 }
 	 }
 	 else if(current->fsm_state==100)
@@ -1513,9 +1586,10 @@ void fsm_Mashine()
 	 {
 		 if(current->acc_decoded_resp_counter>=1)
 		 {
-			current->ufPrintDesc |= 8;
-			current->R0Bytes= current->acc_decoded_resp_counter;
-			memcpy(current->Resp0,current->acc_decoded_resp,current->R0Bytes);	 
+			usbMess(current->selfNum*4+0,current->acc_decoded_resp_counter,current->acc_decoded_resp);
+			// current->ufPrintDesc |= 8;
+			//~ current->R0Bytes= current->acc_decoded_resp_counter;
+			//~ memcpy(current->Resp0,current->acc_decoded_resp,current->R0Bytes);	 
 			
 			led(1);
 			//gpio_set_level(B23_GPIO, 1);
@@ -1538,9 +1612,11 @@ void fsm_Mashine()
 	 {
 		 if(current->acc_decoded_resp_counter>=1)
 		 {
-			current->ufPrintDesc |= 16;
-			current->R1Bytes= current->acc_decoded_resp_counter;
-			memcpy(current->Resp1,current->acc_decoded_resp,current->R0Bytes);	 
+			 usbMess(current->selfNum*4+1,current->acc_decoded_resp_counter,current->acc_decoded_resp);
+			//current->ufPrintDesc |= 16;
+			//current->R1Bytes= current->acc_decoded_resp_counter;
+			//memcpy(current->Resp1,current->acc_decoded_resp,current->R0Bytes);	 
+			led(1);
 		 }
 		current->cmdTimeOut = 2; 
 		current->cb_Cmd        = CB_WAIT1;
@@ -1616,7 +1692,37 @@ int checkPins(int dp,int dm)
 	return 1;
 }
 #include <math.h>
+int64_t get_system_time_us();
 
+float testDelay6(float freq_MHz)
+{
+	// 6 bits must take 4.0 uSec
+#define SEND_BITS  120
+#define REPS           40
+	float res = 1;
+	transmit_NRZI_buffer_cnt = 0;
+	{
+		for(int k=0;k<SEND_BITS/2;k++)
+		{
+			transmit_NRZI_buffer[transmit_NRZI_buffer_cnt++] = USB_LS_K;
+			transmit_NRZI_buffer[transmit_NRZI_buffer_cnt++] = USB_LS_J;
+		}
+		int64_t stimb = get_system_time_us();
+		for(int k=0;k<REPS;k++)
+		{
+			sendOnly();
+			transmit_NRZI_buffer_cnt = SEND_BITS;
+		}
+		
+		uint32_t stim =  get_system_time_us()- stimb;
+		freq_MHz = 1.0f;
+		res = stim*6.0/freq_MHz/(SEND_BITS*REPS);
+		//printf("%d bits in %f uSec %f MHz  6 ticks in %f uS\n",(SEND_BITS*REPS),stim/(float)freq_MHz,(SEND_BITS*REPS)*freq_MHz/stim,stim*6.0/freq_MHz/(SEND_BITS*REPS));
+		printf("%d bits in %d nSec %d KHz  6 ticks in %d nS\n",SEND_BITS*REPS,(int)(1000*stim/(float)freq_MHz),(int)(1000*SEND_BITS*REPS*freq_MHz/stim),(int)(1000*stim*6.0/freq_MHz/(SEND_BITS*REPS)));
+	}
+	return res; 
+}
+#if 0
 float testDelay6(float freq_MHz)
 {
 	// 6 bits must take 4.0 uSec
@@ -1639,7 +1745,7 @@ float testDelay6(float freq_MHz)
 	}
 	return res; 
 }
-
+#endif
 uint8_t arr[0x200];
 
 void initStates(int DP0,int DM0,int DP1,int DM1,int DP2,int DM2,int DP3,int DM3)
@@ -1729,6 +1835,61 @@ void initStates(int DP0,int DM0,int DP1,int DM1,int DP2,int DM2,int DP3,int DM3)
 			if(!calibrated)
 			{	
 				//calibrate delay divide 2
+#define DELAY_CORR 2
+				int  uTime = 255-DELAY_CORR;
+				int  dTime = 0;
+				
+				uint32_t freq_mhz = esp_clk_cpu_freq()/1000000;
+				//~ rtc_cpu_freq_config_t  out_config;
+				
+				//~ rtc_clk_cpu_freq_get_config(&out_config);
+				
+				//uint32_t freq = rtc_clk_cpu_freq_value(rtc_clk_cpu_freq_get());
+				printf("cpu freq = %d MHz\n",freq_mhz);
+				
+				TM_OUT = freq_mhz/2;
+				
+				// 8  - func divided clock to 8, 1.5 - MHz USB LS
+				TIME_MULT = (int)(TIME_SCALE/(freq_mhz/4/1.5)+0.5);
+				printf("TIME_MULT = %d \n",TIME_MULT);
+				
+				int     TRANSMIT_TIME_DELAY_OPT = 0;
+				TRANSMIT_TIME_DELAY = TRANSMIT_TIME_DELAY_OPT;
+				printf("D=%4d ",TRANSMIT_TIME_DELAY);
+				setDelay(TRANSMIT_TIME_DELAY);
+				float  cS_opt = testDelay6(freq_mhz);
+#define OPT_TIME (4.00f)
+				for(int p=0;p<9;p++)
+				{
+					TRANSMIT_TIME_DELAY = (uTime+dTime)/2;
+					printf("D=%4d ",TRANSMIT_TIME_DELAY);
+					setDelay(TRANSMIT_TIME_DELAY);
+					float cS = testDelay6(freq_mhz);
+					if(fabsf(OPT_TIME-cS)<fabsf(OPT_TIME-cS_opt))
+					{
+						cS_opt = cS;
+						TRANSMIT_TIME_DELAY_OPT = TRANSMIT_TIME_DELAY;
+					}
+					if(cS<OPT_TIME)
+					{
+						dTime = TRANSMIT_TIME_DELAY;
+					}
+					else
+					{
+						uTime = TRANSMIT_TIME_DELAY;
+					}
+				}
+				//TRANSMIT_TIME_DELAY_OPT = 100;
+				// 80MHz cpu measure corr. Add anyway for all cpu freq
+				
+				TRANSMIT_TIME_DELAY = TRANSMIT_TIME_DELAY_OPT+DELAY_CORR; 
+				//printf("D=%03d ",TRANSMIT_TIME_DELAY);
+				setDelay(TRANSMIT_TIME_DELAY);
+				//printf("TRANSMIT_TIME_DELAY = %d time = %f error = %f%% \n",TRANSMIT_TIME_DELAY,cS_opt,(cS_opt-OPT_TIME)/OPT_TIME*100);
+				printf("TRANSMIT_TIME_DELAY = %d time = %d error = %d%% \n",TRANSMIT_TIME_DELAY,(int)(1000*cS_opt),(int)((cS_opt-OPT_TIME)/OPT_TIME*100));
+				//calibrated = 1;
+#if 0				
+				//calibrate delay divide 2
 				int  uTime = 254;
 				int  dTime = 0;
 				
@@ -1779,6 +1940,7 @@ void initStates(int DP0,int DM0,int DP1,int DM1,int DP2,int DM2,int DP3,int DM3)
 				cS_opt = testDelay6(freq_mhz);
 				printf("TRANSMIT_TIME_DELAY = %d time = %d error = %d%% \n",TRANSMIT_TIME_DELAY,(int)(1000*cS_opt),(int)((cS_opt-OPT_TIME)/OPT_TIME*100));
 				//calibrated = 1;
+#endif				
 			}
 		}
 		else
@@ -1898,7 +2060,7 @@ static int cntl = 0;
 			#define HIDCLASS        0x03
 			#define HUBCLASS	 	0x09      /* bDeviceClass, bInterfaceClass */
 			printf("clear epCount %d self = %d %d\n",pcurrent->epCount,pcurrent->selfNum,pcurrent->descrBufferLen);
-			pcurrent->epCount     = 0;
+			//pcurrent->epCount     = 0;
 				while(pos<pcurrent->descrBufferLen-2)
 				{
 					uint8_t len  =  pcurrent->descrBuffer[pos];
@@ -1919,11 +2081,11 @@ static int cntl = 0;
 								//printf("cfg.bType           = %02x\n",cfg.bType);
 								
 								printf("cfg.wLength         = %02x\n",cfg.wLength);
-								//~ printf("cfg.bNumIntf        = %02x\n",cfg.bNumIntf);
-								//~ printf("cfg.bCV             = %02x\n",cfg.bCV);
+								printf("cfg.bNumIntf        = %02x\n",cfg.bNumIntf);
+								printf("cfg.bCV             = %02x\n",cfg.bCV);
 								//printf("cfg.bIndex          = %02x\n",cfg.bIndex);
 								//printf("cfg.bAttr           = %02x\n",cfg.bAttr);
-								//~ printf("cfg.bMaxPower       = %d\n",cfg.bMaxPower);
+								printf("cfg.bMaxPower       = %d\n",cfg.bMaxPower);
 
 							}
 							else if (type == 0x4)
@@ -1932,7 +2094,7 @@ static int cntl = 0;
 								memcpy(&sIntf,&pcurrent->descrBuffer[pos],len);
 								//printf("sIntf.bLength      = %02x\n",sIntf.bLength);
 								//printf("sIntf.bType        = %02x\n",sIntf.bType);
-								printf("sIntf.iNum         = %02x\n",sIntf.iNum);
+								//~ printf("sIntf.iNum         = %02x\n",sIntf.iNum);
 								//~ printf("sIntf.iAltString   = %02x\n",sIntf.iAltString);
 								//~ printf("sIntf.bEndPoints   = %02x\n",sIntf.bEndPoints);
 								//~ printf("sIntf.iClass       = %02x\n",sIntf.iClass);
@@ -1958,7 +2120,7 @@ static int cntl = 0;
 							}
 							else if (type == 0x5)
 							{
-								pcurrent->epCount++;
+								//pcurrent->epCount++;
 								printf("pcurrent->epCount = %d\n",pcurrent->epCount);
 								sEPDesc epd;
 								memcpy(&epd,&pcurrent->descrBuffer[pos],len);

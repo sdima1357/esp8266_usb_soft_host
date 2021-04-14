@@ -19,7 +19,7 @@
 
 void printState();
 void usb_process();
-
+void usbMess(uint8_t src,uint8_t len,uint8_t *data);
 void led(int on_off);
 
 #define  NUM_USB 4

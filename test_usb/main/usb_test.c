@@ -9,6 +9,8 @@
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
+
 #include "esp_system.h"
 #include "esp_spi_flash.h"
 #include <sys/time.h>
@@ -26,15 +28,42 @@
 #define DM_P2  -1
 #define DP_P3  -1
 #define DM_P3  -1
+#define BLINK_GPIO 16
+#include "usb_host.h"
 
 void led(int on_fff)
 {
 	//		gpio_set_level(BLINK_GPIO, on_fff);
+	gpio_set_level(BLINK_GPIO, !on_fff);
+	//GPIO16
 }
 
+int64_t get_system_time_us() {
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	return (tv.tv_sec * 1000000LL + (tv.tv_usec ));
+}
+struct USBMessage
+{
+	uint8_t src;
+	uint8_t len;
+	uint8_t  data[0x8];
+};
 
+static xQueueHandle usb_mess_Que = NULL;
 
-#include "usb_host.h"
+void usbMess(uint8_t src,uint8_t len,uint8_t *data)
+{
+	struct  USBMessage msg;
+	msg.src = src;
+	msg.len = len<0x8?len:0x8;
+	for(int k=0;k<msg.len;k++)
+	{
+		msg.data[k] = data[k];
+	}
+	xQueueSend(usb_mess_Que, ( void * ) &msg,(TickType_t)0);
+}
+
 #define ENTER_CRITICAL() portENTER_CRITICAL()
 #define EXIT_CRITICAL() portEXIT_CRITICAL()
 #include "driver/hw_timer.h"
@@ -48,8 +77,15 @@ void hw_timer_callback1ms()
 }
 void app_main()
 {
-    //~ gpio_pad_select_gpio(DP_P);
-    //~ gpio_set_direction(DP_P, GPIO_MODE_OUTPUT);
+     //gpio_pad_select_gpio(BLINK_GPIO);
+     //gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
+			gpio_config_t io_conf;	
+			//io_conf.intr_type      = GPIO_INTR_DISABLE;	
+			io_conf.pin_bit_mask = 1<<BLINK_GPIO;
+			io_conf.pull_down_en = 0;	
+			io_conf.pull_up_en = 0;	
+			io_conf.mode = GPIO_MODE_OUTPUT;
+			gpio_config(&io_conf);
 	
     /* Print chip information */
     esp_chip_info_t chip_info;
@@ -70,6 +106,7 @@ void app_main()
 
     printf("%dMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
             (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
+     usb_mess_Que  = xQueueCreate(10,sizeof(struct USBMessage));
     
      initStates(DP_P,DM_P,DP_P1,DM_P1,DP_P2,DM_P2,DP_P3,DM_P3);
      
@@ -79,6 +116,17 @@ void app_main()
     while(1)
     {
 	    printState();
+		struct USBMessage msg;
+		if(xQueueReceive(usb_mess_Que, &msg, 0)) 
+		{
+		    printf("%02x %02x ",msg.src,msg.len);
+		    int unum= msg.src / 4;
+		    for(int k=0;k<msg.len;k++)
+		   {
+			   printf("%02x ",msg.data[k]);
+		   }
+		   printf("\n");
+	      }
 	    vTaskDelay(10 / portTICK_PERIOD_MS);
      };
     printf("Restarting now.\n");
