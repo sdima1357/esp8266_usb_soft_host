@@ -317,10 +317,10 @@ int          asckedReceiveBytes;
 int 	       transmitL1Bytes;
 uint8_t    transmitL1[DEF_BUFF_SIZE];
 
-uint8_t   Resp0[DEF_BUFF_SIZE];
-uint8_t   R0Bytes;
-uint8_t   Resp1[DEF_BUFF_SIZE];
-uint8_t   R1Bytes;
+//~ uint8_t   Resp0[DEF_BUFF_SIZE];
+//~ uint8_t   R0Bytes;
+//~ uint8_t   Resp1[DEF_BUFF_SIZE];
+//~ uint8_t   R1Bytes;
 
 int     bAcked;	
 
@@ -1618,6 +1618,28 @@ void fsm_Mashine()
 			//memcpy(current->Resp1,current->acc_decoded_resp,current->R0Bytes);	 
 			led(1);
 		 }
+		if(current->epCount>=3)
+		  {
+			RequestIn(T_IN,	ASSIGNED_USB_ADDRESS,3,8);
+			current->fsm_state    = 103; 
+		 }
+		 else
+		 {
+			current->cmdTimeOut = 3; 
+			current->cb_Cmd        = CB_WAIT1;
+			current->fsm_state      = 104; 
+		 }
+	 }
+	 else if(current->fsm_state==103)
+	 {
+		 if(current->acc_decoded_resp_counter>=1)
+		 {
+			 usbMess(current->selfNum*4+2,current->acc_decoded_resp_counter,current->acc_decoded_resp);
+			//current->ufPrintDesc |= 16;
+			//current->R1Bytes= current->acc_decoded_resp_counter;
+			//memcpy(current->Resp1,current->acc_decoded_resp,current->R0Bytes);	 
+			led(1);
+		 }
 		current->cmdTimeOut = 2; 
 		current->cb_Cmd        = CB_WAIT1;
 		current->fsm_state      = 104; 
@@ -2023,26 +2045,26 @@ static int cntl = 0;
 			//~ printf("cfg.bAttr           = %02x\n",pcurrent->cfg.bAttr);
 			//~ printf("cfg.bMaxPower       = %d\n",pcurrent->cfg.bMaxPower);
 		}
-		if(pcurrent->ufPrintDesc&8)
-		{
-			pcurrent->ufPrintDesc &= ~(uint32_t)8;
-			printf("in0 :");
-			for(int k=0;k<pcurrent->R0Bytes;k++)
-			{
-				printf("%02x ",pcurrent->Resp0[k]);
-			}
-			printf("\n");
-		}
-		if(pcurrent->ufPrintDesc&16)
-		{
-			pcurrent->ufPrintDesc &= ~(uint32_t)16;
-			printf("in1 :");
-			for(int k=0;k<pcurrent->R1Bytes;k++)
-			{
-				printf("%02x ",pcurrent->Resp1[k]);
-			}
-			printf("\n");
-		}
+		//~ if(pcurrent->ufPrintDesc&8)
+		//~ {
+			//~ pcurrent->ufPrintDesc &= ~(uint32_t)8;
+			//~ printf("in0 :");
+			//~ for(int k=0;k<pcurrent->R0Bytes;k++)
+			//~ {
+				//~ printf("%02x ",pcurrent->Resp0[k]);
+			//~ }
+			//~ printf("\n");
+		//~ }
+		//~ if(pcurrent->ufPrintDesc&16)
+		//~ {
+			//~ pcurrent->ufPrintDesc &= ~(uint32_t)16;
+			//~ printf("in1 :");
+			//~ for(int k=0;k<pcurrent->R1Bytes;k++)
+			//~ {
+				//~ printf("%02x ",pcurrent->Resp1[k]);
+			//~ }
+			//~ printf("\n");
+		//~ }
 		
 		if(pcurrent->ufPrintDesc&4)
 		{
